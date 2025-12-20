@@ -1,0 +1,14 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydicom==3.0.1
+highdicom==0.27.0
+simpleitk==2.4.0
+numpy==1.26.4
+requests==2.32.3
+torch>=2.2
+torchvision
+monai>=1.4
+huggingface_hub>=0.23
+nibabel~=5.3.3
+pydantic~=2.12.5
+pydantic-settings~=2.12.0
