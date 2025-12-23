@@ -3,6 +3,7 @@
 
 This repository contains a lightweight FastAPI-based AI service for lung nodule detection in CT scans.  
 The service retrieves DICOM series from Orthanc, runs MONAI bundle inference, and stores the results back to Orthanc as a DICOM Structured Report (TID 1500) that can be visualized in viewers such as OHIF.
+<img width="1021" height="599" alt="image" src="https://github.com/user-attachments/assets/f0b4a971-7389-4b39-b0d0-3eb8de101406" />
 
 ---
 
@@ -17,7 +18,6 @@ The service performs the following steps:
 5. Creates a DICOM Comprehensive SR TID 1500 with
 6. Uploads the SR back to Orthanc
 
----
 ## Run Server
 
     uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
