@@ -16,8 +16,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Detection:
     score: float
-    xyz_min: tuple[int, int, int]
-    xyz_max: tuple[int, int, int]
+    x_min: int
+    y_min: int
+    x_max: int
+    y_max: int
+    z_center: int
 
 
 class MonaiLungNoduleDetector:
@@ -118,28 +121,30 @@ class MonaiLungNoduleDetector:
             if sc < float(settings.SCORE_THRESHOLD):
                 continue
 
-            x_min, y_min, z_min, dx, dy, dz = box
+            # MONAI bundle outputs center (mm) + size (mm)
+            cx_mm, cy_mm, cz_mm, sx_mm, sy_mm, sz_mm = [float(v) for v in box]
 
             inv_aff = np.linalg.inv(aff)
 
-            base = np.array([x_min, y_min, z_min], dtype=np.float64)
-            size = np.array([dx, dy, dz], dtype=np.float64)
+            center = np.array([cx_mm, cy_mm, cz_mm], dtype=np.float64)
+            size = np.array([sx_mm, sy_mm, sz_mm], dtype=np.float64)
 
-            offsets01 = np.array(
+            # 8 corners around the center: center +/- size/2 along each axis
+            offsets_pm = np.array(
                 [
-                    [0, 0, 0],
-                    [1, 0, 0],
-                    [0, 1, 0],
-                    [1, 1, 0],
-                    [0, 0, 1],
-                    [1, 0, 1],
-                    [0, 1, 1],
-                    [1, 1, 1],
+                    [-0.5, -0.5, -0.5],
+                    [ 0.5, -0.5, -0.5],
+                    [-0.5,  0.5, -0.5],
+                    [ 0.5,  0.5, -0.5],
+                    [-0.5, -0.5,  0.5],
+                    [ 0.5, -0.5,  0.5],
+                    [-0.5,  0.5,  0.5],
+                    [ 0.5,  0.5,  0.5],
                 ],
                 dtype=np.float64,
             )
 
-            corners_mm = base[None, :] + offsets01 * size[None, :]
+            corners_mm = center[None, :] + offsets_pm * size[None, :]
 
             corners_vox = self.world_mm_to_vox(
                 inv_aff,
@@ -149,20 +154,27 @@ class MonaiLungNoduleDetector:
 
             vmin = np.floor(corners_vox.min(axis=0)).astype(int)
             vmax = np.ceil(corners_vox.max(axis=0)).astype(int)
+
             vmin = np.maximum(vmin, [0, 0, 0])
             vmax = np.minimum(vmax, np.array(shape) - 1)
 
+            z_center = int(np.round((vmin[2] + vmax[2]) / 2.0))
+            z_center = int(np.clip(z_center, 0, shape[2] - 1))
+
             dets.append(
                 Detection(
-                    score=sc,
-                    xyz_min=(vmin[0], vmin[1], vmin[2]),
-                    xyz_max=(vmax[0], vmax[1], vmax[2])
+                    score=float(sc),
+                    x_min=int(vmin[0]),
+                    y_min=int(vmin[1]),
+                    x_max=int(vmax[0]),
+                    y_max=int(vmax[1]),
+                    z_center=z_center,
                 )
             )
 
             logger.debug(
-                f"Detection {i} | score={sc:.3f} | "
-                f"x={vmin[0]}..{vmax[0]} y={vmin[1]}..{vmax[1]} z={vmin[2]}..{vmax[2]}"
+                f"Detection {i} | score={float(sc):.3f} | "
+                f"x={vmin[0]}..{vmax[0]} y={vmin[1]}..{vmax[1]} z_center={z_center}"
             )
 
         return dets

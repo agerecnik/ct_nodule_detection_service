@@ -38,52 +38,51 @@ def build_tid1500_sr(series: SeriesVolume, detections: list[Detection]) -> pydic
     measurement_groups = []
 
     for idx, det in enumerate(detections, start=1):
-        logger.debug(
-            f"Detection {idx} | score={det.score:.3f} | "
-            f"slices={det.xyz_min[2]}..{det.xyz_max[2]}"
+        logger.debug(f"Detection {idx} | score={det.score:.3f}")
+
+        src_ds = series.ds_by_slice[det.z_center]
+        ref = hd.sr.SourceImageForRegion(
+            referenced_sop_class_uid=src_ds.SOPClassUID,
+            referenced_sop_instance_uid=src_ds.SOPInstanceUID,
         )
-        for slice_index in range(det.xyz_min[2], det.xyz_max[2] + 1):
 
-            src_ds = series.ds_by_slice[slice_index]
-            ref = hd.sr.SourceImageForRegion(
-                referenced_sop_class_uid=src_ds.SOPClassUID,
-                referenced_sop_instance_uid=src_ds.SOPInstanceUID,
-            )
+        x_min_new, x_max_new, y_min_new, y_max_new = expand_2d_roi(det, src_ds, settings.SCALE_2D_ROI)
+        region = ImageRegion(
+            graphic_type=hd.sr.GraphicTypeValues.POLYLINE,
+            graphic_data=np.array([
+                [x_min_new, y_min_new],
+                [x_max_new, y_min_new],
+                [x_max_new, y_max_new],
+                [x_min_new, y_max_new],
+                [x_min_new, y_min_new],
+            ], dtype=float),
+            source_image=ref,
+        )
 
-            x_min_new, x_max_new, y_min_new, y_max_new = expand_2d_roi(det, src_ds, settings.SCALE_2D_ROI)
-            region = ImageRegion(
-                graphic_type=hd.sr.GraphicTypeValues.POLYLINE,
-                graphic_data=np.array([
-                    [x_min_new, y_min_new],
-                    [x_max_new, y_min_new],
-                    [x_max_new, y_max_new],
-                    [x_min_new, y_max_new],
-                    [x_min_new, y_min_new],
-                ], dtype=float),
-                source_image=ref,
-            )
+        finding = CodedConcept(value="396006", scheme_designator="SCT", meaning="Pulmonary nodule")
 
-            finding = CodedConcept(value="396006", scheme_designator="SCT", meaning="Pulmonary nodule")
+        tracking_id = TrackingIdentifier(
+            identifier=f"AI_NODULE_{generate_uid()}",
+            uid=generate_uid(),
+        )
 
-            tracking_id = TrackingIdentifier(
-                identifier=f"AI_NODULE_{generate_uid()}",
-                uid=generate_uid(),
-            )
+        mg = hd.sr.PlanarROIMeasurementsAndQualitativeEvaluations(
+            referenced_region=region,
+            tracking_identifier=tracking_id,
+            finding_type=finding,
+            measurements=[
+                hd.sr.Measurement(
+                    name=CodedConcept("R-404FB", "SRT", "Probability"),
+                    value=float(det.score * 100),
+                    unit=CodedConcept("%", "UCUM", "percent")
+                )
+            ],
+            qualitative_evaluations=[],
+        )
 
-            mg = hd.sr.PlanarROIMeasurementsAndQualitativeEvaluations(
-                referenced_region=region,
-                tracking_identifier=tracking_id,
-                finding_type=finding,
-                measurements=[
-                    hd.sr.Measurement(
-                        name=CodedConcept("R-404FB", "SRT", "Probability"),
-                        value=float(det.score * 100),
-                        unit=CodedConcept("%", "UCUM", "percent")
-                    )
-                ],
-                qualitative_evaluations=[],
-            )
-            measurement_groups.append(mg)
+        mg.ContinuityOfContent = "SEPARATE"
+
+        measurement_groups.append(mg)
 
     measurement_report = hd.sr.MeasurementReport(
         observation_context=obs_ctx,
@@ -91,6 +90,7 @@ def build_tid1500_sr(series: SeriesVolume, detections: list[Detection]) -> pydic
         imaging_measurements=measurement_groups,
         title=codes.DCM.ImagingMeasurementReport,
     )
+    measurement_report.ContinuityOfContent = "SEPARATE"
 
     sr_dataset = hd.sr.ComprehensiveSR(
         evidence=series.ds_by_slice,
@@ -105,13 +105,15 @@ def build_tid1500_sr(series: SeriesVolume, detections: list[Detection]) -> pydic
         is_verified=False
     )
 
+    sr_dataset.ContinuityOfContent = "SEPARATE"
+
     return sr_dataset
 
 def expand_2d_roi(detection: Detection, src_ds: Dataset, scale: float):
-    x_min = detection.xyz_min[0]
-    x_max = detection.xyz_max[0]
-    y_min = detection.xyz_min[1]
-    y_max = detection.xyz_max[1]
+    x_min = detection.x_min
+    x_max = detection.x_max
+    y_min = detection.y_min
+    y_max = detection.y_max
 
     logger.debug(
         f"Expanding ROI | scale={scale} | "
